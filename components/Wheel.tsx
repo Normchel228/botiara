@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { BanTarget } from '../types';
 
 interface WheelProps {
@@ -7,100 +7,106 @@ interface WheelProps {
   isSpinning: boolean;
 }
 
-const Wheel: React.FC<WheelProps> = ({ targets, onSpinEnd, isSpinning }) => {
-  const [rotation, setRotation] = useState(0);
-  const wheelRef = useRef<HTMLDivElement>(null);
-  const segmentAngle = 360 / targets.length;
+const ITEM_WIDTH = 100; // Width of one card in pixels
+const VISIBLE_ITEMS = 3; // How many items visible in the window
+
+const HorizontalRoulette: React.FC<WheelProps> = ({ targets, onSpinEnd, isSpinning }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [offset, setOffset] = useState(0);
+  
+  // Generate a long tape of items. 
+  // We repeat the targets list many times to create the illusion of infinite scrolling.
+  // The "Winner" will be placed at a specific index near the end.
+  const tapeItems = useMemo(() => {
+    const repeated = [];
+    // Create a long strip: 80 items total
+    for (let i = 0; i < 80; i++) {
+      repeated.push(targets[i % targets.length]);
+    }
+    return repeated;
+  }, [targets]);
 
   useEffect(() => {
     if (isSpinning) {
-      // Calculate a random spin:
-      // Minimum 5 full spins (1800 deg) + random segment offset
-      const randomSegmentIndex = Math.floor(Math.random() * targets.length);
-      const extraDegrees = 360 * 5 + (360 - (randomSegmentIndex * segmentAngle)); 
-      
-      // Add slight random offset within the segment to look realistic
-      const fuzz = Math.random() * (segmentAngle - 2) + 1;
-      
-      const newRotation = rotation + extraDegrees + fuzz;
-      setRotation(newRotation);
+      // 1. Pick a random winner index between 60 and 75 (towards the end of the tape)
+      const winnerIndex = Math.floor(Math.random() * (75 - 60 + 1)) + 60;
+      const winner = tapeItems[winnerIndex];
 
-      // Timeout should match CSS transition duration
+      // 2. Calculate pixel offset to center the winner
+      // Formula: -(ItemPosition) + (HalfContainerWidth) - (HalfItemWidth)
+      // We assume container width based on VISIBLE_ITEMS * ITEM_WIDTH, 
+      // but purely CSS centering is safer. Let's aim to align the left edge of winner to center minus half width.
+      
+      // Add a random variance within the item (so it doesn't always stop perfectly in center)
+      const variance = Math.floor(Math.random() * 40) - 20; 
+      
+      const containerCenter = (window.innerWidth < 400 ? window.innerWidth : 400) / 2;
+      const finalPosition = (winnerIndex * ITEM_WIDTH) - containerCenter + (ITEM_WIDTH / 2) + variance;
+
+      // 3. Start Animation
+      setOffset(finalPosition);
+
+      // 4. Trigger generic haptics if available (simple loop simulation)
+      if (window.Telegram?.WebApp?.HapticFeedback) {
+        let count = 0;
+        const interval = setInterval(() => {
+            count++;
+            if(count > 10) clearInterval(interval);
+            window.Telegram.WebApp.HapticFeedback.selectionChanged();
+        }, 300);
+      }
+
+      // 5. End Spin
       setTimeout(() => {
-        onSpinEnd(targets[randomSegmentIndex]);
-      }, 4000);
+        if (window.Telegram?.WebApp?.HapticFeedback) {
+            window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+        }
+        onSpinEnd(winner);
+      }, 5500); // Duration matches CSS transition
+    } else {
+        // Reset to start (near 0 but slightly offset to hide start edge)
+        setOffset(0);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSpinning]);
+  }, [isSpinning, onSpinEnd, tapeItems]);
 
   return (
-    <div className="relative w-64 h-64 sm:w-80 sm:h-80 mx-auto my-8">
-      {/* Pointer */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-4 z-20 w-8 h-10">
-        <div className="w-0 h-0 border-l-[15px] border-l-transparent border-r-[15px] border-r-transparent border-t-[30px] border-t-red-600 drop-shadow-lg"></div>
-      </div>
+    <div className="relative w-full max-w-md mx-auto my-8 overflow-hidden bg-gray-900 border-y-4 border-gray-700 h-32 shadow-[inset_0_0_20px_rgba(0,0,0,0.8)]">
+      
+      {/* Center Marker / Cursor */}
+      <div className="absolute left-1/2 top-0 bottom-0 w-1 bg-red-600 z-20 -translate-x-1/2 shadow-[0_0_10px_#ff0000]"></div>
+      <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1 w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[12px] border-t-red-600 z-30"></div>
+      <div className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1 w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-b-[12px] border-b-red-600 z-30"></div>
 
-      {/* Wheel Container */}
-      <div
-        ref={wheelRef}
-        className="w-full h-full rounded-full border-4 border-gray-700 shadow-[0_0_20px_rgba(239,68,68,0.3)] overflow-hidden relative transition-transform cubic-bezier(0.25, 0.1, 0.25, 1)"
+      {/* Glass Reflection Overlay */}
+      <div className="absolute inset-0 z-10 bg-gradient-to-r from-black via-transparent to-black opacity-60 pointer-events-none"></div>
+
+      {/* The Moving Tape */}
+      <div 
+        className="flex items-center h-full will-change-transform"
         style={{
-          transform: `rotate(${rotation}deg)`,
-          transitionDuration: isSpinning ? '4s' : '0s',
-          background: 'conic-gradient(from 0deg, #1f2937 0%, #374151 100%)' // Fallback
+          transform: `translateX(-${offset}px)`,
+          transition: isSpinning ? 'transform 5.5s cubic-bezier(0.15, 0.9, 0.3, 1)' : 'none',
         }}
       >
-        {/* Segments */}
-        {targets.map((target, index) => {
-          const rotate = segmentAngle * index;
-          const isEven = index % 2 === 0;
-          return (
-            <div
-              key={target.id}
-              className="absolute w-full h-full top-0 left-0"
-              style={{
-                transform: `rotate(${rotate}deg)`,
-              }}
-            >
-              {/* Slice Background - using clip-path could be cleaner but this uses skew hack for simplicity or conic-gradient backing */}
-              <div 
-                className={`absolute w-full h-full origin-bottom-center ${isEven ? 'text-gray-300' : 'text-white'}`}
-                style={{
-                    backgroundColor: isEven ? '#1f2937' : '#374151',
-                    clipPath: `polygon(50% 50%, 50% 0, ${50 + 50 * Math.tan((Math.PI * segmentAngle)/360)}% 0)` 
-                    // This is a simplified approximate clip for standard slice logic, 
-                    // usually CSS conic gradients are better for background, 
-                    // but for DOM elements we place them carefully.
-                }}
-              />
-              
-              {/* Content Container (Centered in slice) */}
-              <div
-                className="absolute top-0 left-1/2 -translate-x-1/2 h-1/2 flex flex-col items-center justify-start pt-4 origin-bottom"
-                style={{
-                  transform: `rotate(${segmentAngle / 2}deg)`,
-                  width: `${segmentAngle < 45 ? 60 : 100}px` 
-                }}
-              >
-                <span className="text-2xl mb-1">{target.icon}</span>
-                <span className="text-xs font-bold uppercase truncate max-w-full tracking-tighter" style={{writingMode: 'vertical-rl', textOrientation: 'mixed', height: '80px'}}>
-                  {target.name}
-                </span>
-              </div>
-              
-              {/* Divider Line */}
-              <div className="absolute top-0 left-1/2 w-[1px] h-1/2 bg-gray-600 origin-bottom transform -translate-x-1/2"></div>
-            </div>
-          );
-        })}
-      </div>
-      
-      {/* Center Decor */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-gray-900 rounded-full border-4 border-gray-600 flex items-center justify-center z-10 shadow-inner">
-        <span className="text-xs font-bold text-gray-500">РКН</span>
+        {tapeItems.map((item, index) => (
+          <div 
+            key={`${item.id}-${index}`} 
+            className="flex-shrink-0 flex flex-col items-center justify-center border-r border-gray-800 bg-[#1f2937] relative"
+            style={{ width: `${ITEM_WIDTH}px`, height: '100%' }}
+          >
+            <span className="text-4xl drop-shadow-md mb-1">{item.icon}</span>
+            <span className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-tighter truncate max-w-[90%]">
+              {item.name}
+            </span>
+            
+            {/* Rare Background Pattern for visual variety */}
+            {index % 7 === 0 && <div className="absolute inset-0 bg-yellow-500/5 pointer-events-none"></div>}
+            {index % 5 === 0 && <div className="absolute inset-0 bg-red-500/5 pointer-events-none"></div>}
+          </div>
+        ))}
       </div>
     </div>
   );
 };
 
-export default Wheel;
+export default HorizontalRoulette;

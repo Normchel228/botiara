@@ -2,10 +2,8 @@ import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { GeminiBanResponse } from "../types";
 
 // In a real build environment, use process.env.API_KEY
-// For this demo structure, we assume the environment variable is injected.
-const API_KEY = process.env.API_KEY || ''; 
-
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+// The API key is assumed to be valid and configured.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const banSchema: Schema = {
   type: Type.OBJECT,
@@ -23,13 +21,6 @@ const banSchema: Schema = {
 };
 
 export const generateBanReason = async (targetName: string): Promise<GeminiBanResponse> => {
-  if (!API_KEY) {
-    return {
-      reason: "Сбой системы: API ключ не обнаружен. Блокировка невозможна.",
-      article: "ERR-500",
-    };
-  }
-
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
