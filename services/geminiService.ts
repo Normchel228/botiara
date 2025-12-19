@@ -1,9 +1,21 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { GeminiBanResponse } from "../types";
 
-// In a real build environment, use process.env.API_KEY
-// The API key is assumed to be valid and configured.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Safely retrieve API key or default to empty string to prevent "process is not defined" crash in browser
+// Note: In a production build, your bundler (Vite/Webpack) will replace process.env.
+const getApiKey = () => {
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env.API_KEY || '';
+    }
+  } catch (e) {
+    // Ignore reference errors
+  }
+  return '';
+};
+
+const API_KEY = getApiKey();
+const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 const banSchema: Schema = {
   type: Type.OBJECT,
@@ -22,6 +34,14 @@ const banSchema: Schema = {
 
 export const generateBanReason = async (targetName: string): Promise<GeminiBanResponse> => {
   try {
+    if (!API_KEY) {
+      console.warn("API Key is missing. Returning mock response.");
+      return {
+        reason: "Система временно недоступна (отсутствует API ключ). Но мы все равно запрещаем это профилактически.",
+        article: "Ст. 404 (Not Found)",
+      };
+    }
+
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `You are a strict, bureaucratic, but satirical automated system for the Roskomnadzor (Russian internet censor). 
